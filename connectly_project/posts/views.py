@@ -38,20 +38,4 @@ def create_post(request):
             return JsonResponse({'error': 'Author not found'}, status=404)
         except Exception as e:
             return JsonResponse({'error': str(e)}, status=400)
-def update_post(request, id):
-    try:
-        post = Post.objects.get(id=id)
-        # Update the post fields based on the request data (assuming POST request)
-        post.title = request.POST.get('title', post.title)
-        post.content = request.POST.get('content', post.content)
-        post.save()
-        return JsonResponse({'message': 'Post updated successfully!'})
-    except Post.DoesNotExist:
-        return JsonResponse({'error': 'Post not found'}, status=404)
-def delete_post(request, id):
-    try:
-        post = Post.objects.get(id=id)
-        post.delete()
-        return JsonResponse({'message': 'Post deleted successfully!'})
-    except Post.DoesNotExist:
-        return JsonResponse({'error': 'Post not found'}, status=404)
+
