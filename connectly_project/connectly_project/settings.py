@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'rest_framework',  # Add Django REST Framework
     'posts',
     'django_extensions',
+    'rest_framework.authtoken',
 ]
 
 MIDDLEWARE = [
