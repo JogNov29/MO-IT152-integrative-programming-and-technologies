@@ -1,20 +1,22 @@
-from rest_framework.permissions import BasePermission  # Import the base class for custom permissions
+from rest_framework.permissions import BasePermission
 
-class IsPostAuthor(BasePermission):  # Define a new permission class called IsPostAuthor, inheriting from BasePermission
+class IsPostAuthor(BasePermission):
     """
-    Custom permission to allow access only to the author of a post.
-    """  # Docstring explaining the purpose of the permission
+    Custom permission to allow only the author of a post to access or modify it.
+    """
 
-    def has_object_permission(self, request, view, obj):  # This method is called to check object-level permissions
+    def has_object_permission(self, request, view, obj):
         """
-        Check if the requesting user is the author of the object (post).
-
-        Args:
-            request: The incoming request object.
-            view: The view handling the request.
-            obj: The object (post) being accessed.
-
-        Returns:
-            True if the user is the author, False otherwise.
+        Check if the requesting user is the author of the post.
+        
+        Returns True if the user is the author, False otherwise.
         """
-        return obj.author == request.user  # The core logic: compare the post's author to the requesting user.
+        return obj.author == request.user  # Allow access if the post's author matches the request user
+
+class IsCommentAuthor(BasePermission):
+    """
+    Custom permission to only allow the author of a comment to edit or delete it.
+    """
+    def has_object_permission(self, request, view, obj):
+        # Check if the request user is the author of the comment
+        return obj.author == request.user

@@ -6,7 +6,7 @@ from .models import Post, Comment
 class UserSerializer(serializers.ModelSerializer):
     """
     Secure User Serializer
-    - Excludes sensitive information
+    - Excludes sensitive information like password from the response
     - Validates unique username/email
     """
     password = serializers.CharField(
@@ -20,7 +20,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password']
+        fields = ['id', 'username', 'email', 'password']  # Include password for creation but not for response
         extra_kwargs = {
             'username': {'validators': []},  # Remove default validators
             'email': {'required': True}
@@ -64,6 +64,19 @@ class UserSerializer(serializers.ModelSerializer):
         )
         return user
 
+    def update(self, instance, validated_data):
+        """
+        Secure user update
+        - Handle password hashing and ensure other fields are updated
+        """
+        password = validated_data.get('password', None)
+        if password:
+            instance.set_password(password)  # Hash the new password
+        instance.username = validated_data.get('username', instance.username)
+        instance.email = validated_data.get('email', instance.email)
+        instance.save()
+        return instance
+
 
 class PostSerializer(serializers.ModelSerializer):
     """
@@ -71,19 +84,11 @@ class PostSerializer(serializers.ModelSerializer):
     - Validates post content
     - Prevents unauthorized author assignment
     """
-    # Remove direct comments display to prevent potential information leakage
-    author_username = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Post
-        fields = ['id', 'content', 'author', 'author_username', 'created_at']
+        fields = ['id', 'content', 'author', 'created_at']
         read_only_fields = ['author', 'created_at']
-
-    def get_author_username(self, obj):
-        """
-        Return author's username safely
-        """
-        return obj.author.username if obj.author else None
 
     def validate_content(self, value):
         """
@@ -115,18 +120,11 @@ class CommentSerializer(serializers.ModelSerializer):
     - Validates comment creation
     - Prevents unauthorized author/post assignments
     """
-    author_username = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Comment
-        fields = ['id', 'text', 'author', 'author_username', 'post', 'created_at']
+        fields = ['id', 'text', 'author', 'post', 'created_at']
         read_only_fields = ['author', 'created_at']
-
-    def get_author_username(self, obj):
-        """
-        Return author's username safely
-        """
-        return obj.author.username if obj.author else None
 
     def validate_text(self, value):
         """
@@ -150,6 +148,12 @@ class CommentSerializer(serializers.ModelSerializer):
         post = data.get('post')
         if not post:
             raise serializers.ValidationError("Post is required.")
+        
+        # Check if the post exists in the database
+        try:
+            post_instance = Post.objects.get(pk=post.id)
+        except Post.DoesNotExist:
+            raise serializers.ValidationError("The post does not exist.")
         
         return data
 

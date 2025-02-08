@@ -1,4 +1,7 @@
 from rest_framework import status
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.views import APIView
@@ -7,13 +10,23 @@ from rest_framework.exceptions import PermissionDenied, NotFound
 from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login
-
-from .models import Post, Comment
-from .serializers import UserSerializer, PostSerializer, CommentSerializer
+from .models import Post, Comment   
+from .serializers import UserSerializer, PostSerializer, CommentSerializer  
 from .permissions import IsPostAuthor
+from .permissions import IsCommentAuthor
 
 
-class UserLogin(APIView):
+# CSRF Exempt Mixin
+class CSRFExemptMixin(object):
+    """
+    Mixin to exempt a class-based view from CSRF protection.
+    Any class inheriting from this mixin will have CSRF protection disabled.
+    """
+    @method_decorator(csrf_exempt)
+    def dispatch(self, *args, **kwargs):
+        return super(CSRFExemptMixin, self).dispatch(*args, **kwargs)
+
+class UserLogin(CSRFExemptMixin, APIView):
     """
     User Authentication Endpoint
     - Validates credentials 
@@ -50,7 +63,6 @@ class UserCreate(APIView):
     - Security: Basic input validation
     - Permissions: Allows anyone to create account
     """
-    permission_classes = [AllowAny]
 
     def post(self, request):
         username = request.data.get('username')
@@ -84,16 +96,21 @@ class UserCreate(APIView):
                 email=email,
                 password=password
             )
-            return Response(
-                UserSerializer(user).data, 
-                status=status.HTTP_201_CREATED
-            )
+
+            # Generate a token for the newly created user
+            token, _ = Token.objects.get_or_create(user=user)
+
+            # Return user data along with the generated token
+            return Response({
+                "message": "User created successfully",
+                "token": token.key  # Token returned for immediate use
+            }, status=status.HTTP_201_CREATED)
+        
         except Exception as e:
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 class UserListView(APIView):
     """
@@ -212,20 +229,19 @@ class PostListCreate(APIView):
         )
 
     def post(self, request):
-        # Create new post
-        request.data['author'] = request.user.id
-        content = request.data.get('content', '').strip()
-
         # Validate post content
+        content = request.data.get('content', '').strip()
         if not content:
             return Response(
                 {'error': 'Post content cannot be empty.'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        serializer = PostSerializer(data=request.data)
+        # Create serializer without manually setting the 'author' field
+        serializer = PostSerializer(data=request.data, context={'request': request})
+        
         if serializer.is_valid():
-            serializer.save()
+            serializer.save()  # The 'author' field will be automatically set here by the serializer
             return Response(
                 serializer.data, 
                 status=status.HTTP_201_CREATED
@@ -302,3 +318,133 @@ class PostDetailView(APIView):
             )
         except Post.DoesNotExist:
             raise NotFound('Post not found')
+        
+
+class CommentListCreate(APIView):
+    """
+    Comment Management Endpoint
+    - Token authentication required
+    - Supports comment listing and creation
+    - Security: 
+        * Only authenticated users can create comments
+        * Validates comment text
+        * Automatically assigns comment author
+    """
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # List all comments
+        comments = Comment.objects.all()
+        return Response(
+            CommentSerializer(comments, many=True).data,
+            status=status.HTTP_200_OK
+        )
+
+    def post(self, request):
+        # Create new comment
+        request.data['author'] = request.user.id
+        text = request.data.get('text', '').strip()
+        post_id = request.data.get('post', None)
+
+        # Validate comment text
+        if not text:
+            return Response(
+                {'error': 'Comment text cannot be empty.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not post_id:
+            return Response(
+                {'error': 'A valid post ID is required to create a comment.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            post = Post.objects.get(id=post_id)
+        except Post.DoesNotExist:
+            return Response(
+                {'error': 'The specified post does not exist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        request.data['post'] = post.id  # Ensure post is set correctly
+
+        # Pass the request context explicitly
+        serializer = CommentSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+class CommentDetailView(APIView):
+    """
+    Individual Comment Management Endpoint
+    - Token authentication required
+    - Supports retrieve, update, and delete actions
+    - Security: 
+        * Only authenticated users can access
+        * Only the comment author can update or delete their comment
+    """
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated, IsCommentAuthor]
+
+    def get(self, request, pk):
+        # Retrieve specific comment
+        try:
+            comment = Comment.objects.get(pk=pk)
+            self.check_object_permissions(request, comment)
+            return Response(
+                {"text": comment.text},
+                status=status.HTTP_200_OK
+            )
+        except Comment.DoesNotExist:
+            raise NotFound('Comment not found')
+
+    def put(self, request, pk):
+        # Update specific comment
+        try:
+            comment = Comment.objects.get(pk=pk)
+            self.check_object_permissions(request, comment)
+
+            text = request.data.get('text', '').strip()
+            if not text:
+                return Response(
+                    {'error': 'Comment text cannot be empty.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            serializer = CommentSerializer(comment, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(
+                    serializer.data,
+                    status=status.HTTP_200_OK
+                )
+            
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Comment.DoesNotExist:
+            raise NotFound('Comment not found')
+
+    def delete(self, request, pk):
+        # Delete specific comment
+        try:
+            comment = Comment.objects.get(pk=pk)
+            self.check_object_permissions(request, comment)
+            comment.delete()
+            return Response(
+                {"message": "Comment deleted successfully."},
+                status=status.HTTP_200_OK
+            )
+        except Comment.DoesNotExist:
+            raise NotFound('Comment not found')
