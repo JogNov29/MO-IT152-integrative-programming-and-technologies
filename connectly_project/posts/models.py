@@ -24,12 +24,22 @@ from django.contrib.auth.hashers import make_password
 
 
 class Post(models.Model):
-    content = models.TextField()  # The text content of the post
-    author = models.ForeignKey(User, on_delete=models.CASCADE)  # The user who created the post
-    created_at = models.DateTimeField(auto_now_add=True)  # Timestamp when the post was created
+    POST_TYPES = (
+        ('image', 'Image'),
+        ('video', 'Video'),
+        ('text', 'Text'),
+    )
+    
+    # Fields
+    title = models.CharField(max_length=255)  # Add title field to store the title of the post
+    content = models.TextField()  # Post content
+    post_type = models.CharField(max_length=50, choices=POST_TYPES)  # Post type (image, video, etc.)
+    metadata = models.JSONField(null=True, blank=True)  # Store metadata in a JSON format (file_size, duration, etc.)
+    created_at = models.DateTimeField(auto_now_add=True)  # Auto-filled with timestamp
+    author = models.ForeignKey(User, on_delete=models.CASCADE)  # Author of the post (foreign key to User)
 
     def __str__(self):
-        return self.content[:50]
+        return self.title
 
 
 class Comment(models.Model):

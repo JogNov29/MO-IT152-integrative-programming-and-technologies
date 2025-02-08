@@ -14,6 +14,9 @@ from .models import Post, Comment
 from .serializers import UserSerializer, PostSerializer, CommentSerializer  
 from .permissions import IsPostAuthor
 from .permissions import IsCommentAuthor
+from posts.singletons.config_manager import ConfigManager
+from posts.singletons.logger_singleton import LoggerSingleton
+from posts.factories.post_factory import PostFactory
 
 
 # CSRF Exempt Mixin
@@ -236,21 +239,36 @@ class PostListCreate(APIView):
                 {'error': 'Post content cannot be empty.'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Create serializer without manually setting the 'author' field
-        serializer = PostSerializer(data=request.data, context={'request': request})
         
-        if serializer.is_valid():
-            serializer.save()  # The 'author' field will be automatically set here by the serializer
+        # Validate post type (optional) if not done by the factory
+        post_type = request.data.get('post_type', '')
+        if post_type not in dict(Post.POST_TYPES):
             return Response(
-                serializer.data, 
+                {'error': 'Invalid post type.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Prepare metadata and add author_id (instead of the entire user object)
+        metadata = request.data.get('metadata', {})
+        metadata['author_id'] = request.user.id  # Add the user_id as author_id
+
+        # Create the post using the factory
+        try:
+            post = PostFactory.create_post(post_type, request.data['title'], content, metadata)
+
+            # Serialize and return the response
+            serializer = PostSerializer(post)
+            return Response(
+                serializer.data,
                 status=status.HTTP_201_CREATED
             )
-        
-        return Response(
-            serializer.errors, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
+
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 
 class PostDetailView(APIView):
@@ -448,3 +466,14 @@ class CommentDetailView(APIView):
             )
         except Comment.DoesNotExist:
             raise NotFound('Comment not found')
+       
+        
+class SingletonTestView(APIView):
+    """
+    Test Singleton behavior of the ConfigManager
+    """
+    def get(self, request):
+        # Retrieve the DEFAULT_PAGE_SIZE from the ConfigManager Singleton
+        config = ConfigManager()
+        default_page_size = config.get_setting("DEFAULT_PAGE_SIZE")
+        return Response({"DEFAULT_PAGE_SIZE": default_page_size})

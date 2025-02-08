@@ -85,21 +85,19 @@ class PostSerializer(serializers.ModelSerializer):
     - Prevents unauthorized author assignment
     """
 
+    # Assuming you want to show the username of the author instead of just the user ID
+    author = serializers.SlugRelatedField(slug_field='username', queryset=User.objects.all())
+
     class Meta:
         model = Post
-        fields = ['id', 'content', 'author', 'created_at']
+        fields = ['id', 'content', 'author', 'created_at', 'title', 'post_type']
         read_only_fields = ['author', 'created_at']
 
     def validate_content(self, value):
-        """
-        Content validation
-        - Prevent empty posts
-        - Optional: Add content length restrictions
-        """
         if not value or value.strip() == "":
             raise serializers.ValidationError("Post content cannot be empty.")
         
-        if len(value) > 1000:  # Example max length
+        if len(value) > 1000:
             raise serializers.ValidationError("Post content is too long.")
         
         return value
@@ -112,6 +110,7 @@ class PostSerializer(serializers.ModelSerializer):
         # Ensure author is set from request context
         validated_data['author'] = self.context['request'].user
         return super().create(validated_data)
+
 
 
 class CommentSerializer(serializers.ModelSerializer):

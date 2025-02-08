@@ -1,5 +1,6 @@
 from django.urls import path
 from .import views
+from .views import SingletonTestView
 from .views import (
     UserCreate,
     UserListView,
@@ -29,7 +30,9 @@ urlpatterns = [
     path('comments/', CommentListCreate.as_view(), name='comment-list-create'),  # List and create comments
     path('comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),  # Retrieve, update, or delete comment
 
-
     # Protected endpoint for testing authentication
     path('protected/', ProtectedView.as_view(), name='protected-view'),
+    
+     # Add the SingletonTestView
+    path('test-singleton/', SingletonTestView.as_view(), name='test-singleton'),
 ]
