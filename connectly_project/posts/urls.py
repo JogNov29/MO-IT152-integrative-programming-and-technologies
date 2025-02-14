@@ -1,22 +1,32 @@
 from django.urls import path
 from .import views
-from .views import SingletonTestView
+from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     UserCreate,
     UserListView,
     PostListCreate,
     CommentListCreate,
-    UserLogin,
+    UserLoginView,
     PostDetailView,
     ProtectedView,
     UserDetailView,
     CommentDetailView,
+    LikeView, 
+    PostLikesView,
+    UserLogoutView,
+    CustomTokenObtainPairView
 )
 
 
 urlpatterns = [
+    
+    # JWT endpoints
+    path('token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('login/', UserLoginView.as_view(), name='user_login'),
+    path('logout/', UserLogoutView.as_view(), name='user_logout'),
+    
     # User Authentication and Registration
-    path('login/', UserLogin.as_view(), name='user-login'),  # User Login (Generates Token)
     path('users/', UserCreate.as_view(), name='user-create'),  # User Registration (Create User)
     path('users/list/', UserListView.as_view(), name='user-list'),  # List all users (Admin only)
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),  # Retrieve user details
@@ -34,5 +44,9 @@ urlpatterns = [
     path('protected/', ProtectedView.as_view(), name='protected-view'),
     
      # Add the SingletonTestView
-    path('test-singleton/', SingletonTestView.as_view(), name='test-singleton'),
+    #path('test-singleton/', SingletonTestView.as_view(), name='test-singleton'),
+    
+    # Add the LikeView and PostLikesView
+    path('posts/<int:post_id>/like/', LikeView.as_view(), name='post-like'),
+    path('posts/<int:post_id>/likes/', PostLikesView.as_view(), name='post-likes-list'),
 ]

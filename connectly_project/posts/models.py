@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ValidationError
 
 
 # class User(models.Model):
@@ -50,3 +51,22 @@ class Comment(models.Model):
 
     def __str__(self):
         return f"Comment by {self.author.username} on Post {self.post.id}"
+
+
+class Like(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='likes')
+    post = models.ForeignKey('Post', on_delete=models.CASCADE, related_name='likes')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Ensure a user can only like a post once
+        unique_together = ('user', 'post')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} likes {self.post.title}"
+
+    def clean(self):
+        # Additional validation if needed
+        if self.user == self.post.author:
+            raise ValidationError("Users cannot like their own posts")

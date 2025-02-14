@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Post, Comment
+from .models import Post, Comment, Like
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -80,37 +80,176 @@ class UserSerializer(serializers.ModelSerializer):
 
 class PostSerializer(serializers.ModelSerializer):
     """
-    Secure Post Serializer
-    - Validates post content
+    Complete Post Serializer
+    - Handles post creation, updating, and retrieval
+    - Includes likes functionality
+    - Validates post content and metadata
     - Prevents unauthorized author assignment
     """
-
-    # Assuming you want to show the username of the author instead of just the user ID
-    author = serializers.SlugRelatedField(slug_field='username', queryset=User.objects.all())
-
+    
+    # Basic fields
+    author = serializers.SlugRelatedField(
+        slug_field='username',
+        read_only=True
+    )
+    
+    # Likes-related fields
+    likes_count = serializers.SerializerMethodField()
+    is_liked_by_user = serializers.SerializerMethodField()
+    comments_count = serializers.SerializerMethodField()
+    
     class Meta:
         model = Post
-        fields = ['id', 'content', 'author', 'created_at', 'title', 'post_type']
-        read_only_fields = ['author', 'created_at']
+        fields = [
+            'id',
+            'title',
+            'content',
+            'post_type',
+            'metadata',
+            'author',
+            'created_at',
+            'likes_count',
+            'is_liked_by_user',
+            'comments_count'
+        ]
+        read_only_fields = [
+            'author',
+            'created_at',
+            'likes_count',
+            'is_liked_by_user',
+            'comments_count'
+        ]
+
+    def get_likes_count(self, obj):
+        """Get the total number of likes for the post"""
+        return obj.likes.count()
+
+    def get_is_liked_by_user(self, obj):
+        """Check if the current user has liked the post"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.likes.filter(user=request.user).exists()
+        return False
+
+    def get_comments_count(self, obj):
+        """Get the total number of comments on the post"""
+        return obj.comments.count()
+
+    def validate_title(self, value):
+        """Validate post title"""
+        if not value or value.strip() == "":
+            raise serializers.ValidationError("Post title cannot be empty.")
+        
+        if len(value) > 255:
+            raise serializers.ValidationError("Post title is too long. Maximum 255 characters allowed.")
+        
+        return value.strip()
 
     def validate_content(self, value):
+        """Validate post content"""
         if not value or value.strip() == "":
             raise serializers.ValidationError("Post content cannot be empty.")
         
-        if len(value) > 1000:
-            raise serializers.ValidationError("Post content is too long.")
+        if len(value) > 5000:  # Adjust max length as needed
+            raise serializers.ValidationError("Post content is too long. Maximum 5000 characters allowed.")
         
+        return value.strip()
+
+    def validate_post_type(self, value):
+        """Validate post type"""
+        valid_types = dict(Post.POST_TYPES).keys()
+        if value not in valid_types:
+            raise serializers.ValidationError(
+                f"Invalid post type. Must be one of: {', '.join(valid_types)}"
+            )
         return value
 
+    def validate_metadata(self, value):
+        """Validate metadata based on post type"""
+        if not value:
+            return {}
+            
+        post_type = self.initial_data.get('post_type')
+        
+        if post_type == 'image':
+            required_fields = ['width', 'height', 'format']
+            for field in required_fields:
+                if field not in value:
+                    raise serializers.ValidationError(
+                        f"Image posts require '{field}' in metadata"
+                    )
+                    
+        elif post_type == 'video':
+            required_fields = ['duration', 'format']
+            for field in required_fields:
+                if field not in value:
+                    raise serializers.ValidationError(
+                        f"Video posts require '{field}' in metadata"
+                    )
+                    
+        return value
+
+    def validate(self, data):
+        """Additional cross-field validation"""
+        # Ensure post type and content match
+        post_type = data.get('post_type')
+        content = data.get('content')
+        
+        if post_type in ['image', 'video']:
+            # For media posts, content should contain a valid URL or file path
+            if not content or not (
+                content.startswith('http') or 
+                content.startswith('/')
+            ):
+                raise serializers.ValidationError(
+                    f"{post_type.capitalize()} posts require a valid media URL or path"
+                )
+        
+        return data
+
     def create(self, validated_data):
-        """
-        Secure post creation
-        - Enforce author as current authenticated user
-        """
-        # Ensure author is set from request context
-        validated_data['author'] = self.context['request'].user
+        """Create new post with authenticated user as author"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Must be authenticated to create a post"
+            )
+            
+        validated_data['author'] = request.user
         return super().create(validated_data)
 
+    def update(self, instance, validated_data):
+        """Update post while preserving the author"""
+        # Prevent changing the author
+        validated_data.pop('author', None)
+        
+        # Update the instance
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+            
+        instance.save()
+        return instance
+
+    def to_representation(self, instance):
+        """Customize the output representation"""
+        representation = super().to_representation(instance)
+        
+        # Add formatted timestamp
+        representation['created_at'] = instance.created_at.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        
+        # Add recent likes (last 3 users who liked)
+        recent_likes = instance.likes.order_by('-created_at')[:3]
+        representation['recent_likes'] = [
+            {
+                'user': like.user.username,
+                'timestamp': like.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for like in recent_likes
+        ]
+        
+        return representation
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -164,3 +303,15 @@ class CommentSerializer(serializers.ModelSerializer):
         # Ensure author is set from request context
         validated_data['author'] = self.context['request'].user
         return super().create(validated_data)
+
+
+class LikeSerializer(serializers.ModelSerializer):
+    user = serializers.SlugRelatedField(
+        slug_field='username',
+        read_only=True
+    )
+    
+    class Meta:
+        model = Like
+        fields = ['id', 'user', 'post', 'created_at']
+        read_only_fields = ['user', 'created_at']

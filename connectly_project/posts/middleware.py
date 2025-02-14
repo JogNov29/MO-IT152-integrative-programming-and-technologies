@@ -1,4 +1,6 @@
 from posts.singletons.logger_singleton import LoggerSingleton
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.conf import settings
 
 class LoggingMiddleware:
     """
@@ -20,4 +22,21 @@ class LoggingMiddleware:
         # Log the outgoing response status code
         self.logger.info(f"Response: {response.status_code} for {request.method} {request.path}")
 
+        return response
+
+
+class JWTAuthenticationMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        try:
+            jwt_auth = JWTAuthentication()
+            user_auth_tuple = jwt_auth.authenticate(request)
+            if user_auth_tuple is not None:
+                request.user, request.auth = user_auth_tuple
+        except:
+            pass
+
+        response = self.get_response(request)
         return response
