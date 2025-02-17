@@ -1,61 +1,96 @@
+# Django imports
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+
+# Rest Framework imports
 from rest_framework import status
-from django.views import View
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.authentication import TokenAuthentication
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, NotFound
-from rest_framework.authtoken.models import Token
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login
-from .models import Post, Comment   
-from .serializers import UserSerializer, PostSerializer, CommentSerializer  
-from .permissions import IsPostAuthor
-from .permissions import IsCommentAuthor
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+# Local imports
+from .models import Post, Comment, Like
+from .serializers import (
+    UserSerializer,
+    PostSerializer,
+    CommentSerializer,
+    LikeSerializer
+)
+from .permissions import IsPostAuthor, IsCommentAuthor
 from posts.singletons.config_manager import ConfigManager
-from posts.singletons.logger_singleton import LoggerSingleton
 from posts.factories.post_factory import PostFactory
 
 
-# CSRF Exempt Mixin
-class CSRFExemptMixin(object):
+    
+class CustomTokenObtainPairView(TokenObtainPairView):
     """
-    Mixin to exempt a class-based view from CSRF protection.
-    Any class inheriting from this mixin will have CSRF protection disabled.
+    Custom token view that returns user data along with tokens
     """
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        return super(CSRFExemptMixin, self).dispatch(*args, **kwargs)
+    def post(self, request, *args, **kwargs):
+        # Get tokens using parent class
+        response = super().post(request, *args, **kwargs)
+        
+        if response.status_code == 200:
+            # Add user data to response
+            user = authenticate(
+                username=request.data.get('username'),
+                password=request.data.get('password')
+            )
+            user_data = UserSerializer(user).data
+            response.data['user'] = user_data
+            
+        return response
 
-class UserLogin(CSRFExemptMixin, APIView):
+
+class UserLoginView(APIView):
     """
-    User Authentication Endpoint
-    - Validates credentials 
-    - Generates/returns authentication token
-    - Security: Prevents login with invalid credentials
+    Enhanced login view with JWT tokens and user data
     """
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
 
-        # Authenticate user credentials
-        user = authenticate(request, username=username, password=password)
-        if not user:
+        user = authenticate(username=username, password=password)
+        if user:
+            refresh = RefreshToken.for_user(user)
+            
+            return Response({
+                'message': 'Login successful',
+                'tokens': {
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                },
+                'user': UserSerializer(user).data
+            })
+        
+        return Response(
+            {"error": "Invalid credentials"}, 
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+class UserLogoutView(APIView):
+    """
+    Logout view that blacklists the refresh token
+    """
+    def post(self, request):
+        try:
+            refresh_token = request.data["refresh_token"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
             return Response(
-                {"error": "Invalid credentials"}, 
+                {"message": "Successfully logged out"}, 
+                status=status.HTTP_200_OK
+            )
+        except Exception:
+            return Response(
+                {"error": "Invalid token"}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Log in user and generate token
-        login(request, user)
-        token, _ = Token.objects.get_or_create(user=user)
-        
-        return Response({
-            "message": "Login successful", 
-            "token": token.key
-        }, status=status.HTTP_200_OK)
 
 
 class UserCreate(APIView):
@@ -101,12 +136,15 @@ class UserCreate(APIView):
             )
 
             # Generate a token for the newly created user
-            token, _ = Token.objects.get_or_create(user=user)
+            refresh = RefreshToken.for_user(user)
 
             # Return user data along with the generated token
             return Response({
                 "message": "User created successfully",
-                "token": token.key  # Token returned for immediate use
+                 "tokens": {
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token)
+                }
             }, status=status.HTTP_201_CREATED)
         
         except Exception as e:
@@ -122,7 +160,7 @@ class UserListView(APIView):
     - Admin-only access
     - Security: Restricts user list to staff members
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -148,7 +186,7 @@ class UserDetailView(APIView):
       * Authenticated users can view their own details
       * Only admin can modify/delete users
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
@@ -203,7 +241,7 @@ class ProtectedView(APIView):
     - Confirms user is authenticated
     - Used for testing/verifying authentication
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -220,7 +258,7 @@ class PostListCreate(APIView):
       * Validates post content
       * Automatically assigns post author
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -252,17 +290,19 @@ class PostListCreate(APIView):
         metadata = request.data.get('metadata', {})
         metadata['author_id'] = request.user.id  # Add the user_id as author_id
 
-        # Create the post using the factory
         try:
-            post = PostFactory.create_post(post_type, request.data['title'], content, metadata)
-
-            # Serialize and return the response
-            serializer = PostSerializer(post)
+            metadata = request.data.get('metadata', {})
+            metadata['author_id'] = request.user.id
+            post = PostFactory.create_post(
+                post_type,
+                request.data['title'],
+                content,
+                metadata
+            )
             return Response(
-                serializer.data,
+                PostSerializer(post).data,
                 status=status.HTTP_201_CREATED
             )
-
         except ValueError as e:
             return Response(
                 {'error': str(e)},
@@ -281,7 +321,7 @@ class PostDetailView(APIView):
       * Only post author can modify/delete
       * Validates post modifications
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsPostAuthor]
 
     def get(self, request, pk):
@@ -348,7 +388,7 @@ class CommentListCreate(APIView):
         * Validates comment text
         * Automatically assigns comment author
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -360,47 +400,22 @@ class CommentListCreate(APIView):
         )
 
     def post(self, request):
-        # Create new comment
         request.data['author'] = request.user.id
-        text = request.data.get('text', '').strip()
-        post_id = request.data.get('post', None)
-
-        # Validate comment text
-        if not text:
-            return Response(
-                {'error': 'Comment text cannot be empty.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not post_id:
-            return Response(
-                {'error': 'A valid post ID is required to create a comment.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
-            post = Post.objects.get(id=post_id)
+            post = Post.objects.get(id=request.data.get('post'))
+            serializer = CommentSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Post.DoesNotExist:
             return Response(
-                {'error': 'The specified post does not exist.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Post not found'},
+                status=status.HTTP_404_NOT_FOUND
             )
-
-        request.data['post'] = post.id  # Ensure post is set correctly
-
-        # Pass the request context explicitly
-        serializer = CommentSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                serializer.data,
-                status=status.HTTP_201_CREATED
-            )
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
-        )
 
 class CommentDetailView(APIView):
     """
@@ -411,7 +426,7 @@ class CommentDetailView(APIView):
         * Only authenticated users can access
         * Only the comment author can update or delete their comment
     """
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsCommentAuthor]
 
     def get(self, request, pk):
@@ -427,30 +442,18 @@ class CommentDetailView(APIView):
             raise NotFound('Comment not found')
 
     def put(self, request, pk):
-        # Update specific comment
         try:
             comment = Comment.objects.get(pk=pk)
             self.check_object_permissions(request, comment)
-
-            text = request.data.get('text', '').strip()
-            if not text:
-                return Response(
-                    {'error': 'Comment text cannot be empty.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            serializer = CommentSerializer(comment, data=request.data, partial=True)
+            serializer = CommentSerializer(
+                comment,
+                data=request.data,
+                partial=True
+            )
             if serializer.is_valid():
                 serializer.save()
-                return Response(
-                    serializer.data,
-                    status=status.HTTP_200_OK
-                )
-            
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Comment.DoesNotExist:
             raise NotFound('Comment not found')
 
@@ -467,13 +470,99 @@ class CommentDetailView(APIView):
         except Comment.DoesNotExist:
             raise NotFound('Comment not found')
        
-        
+"""       
 class SingletonTestView(APIView):
-    """
+  
     Test Singleton behavior of the ConfigManager
-    """
+
     def get(self, request):
         # Retrieve the DEFAULT_PAGE_SIZE from the ConfigManager Singleton
         config = ConfigManager()
         default_page_size = config.get_setting("DEFAULT_PAGE_SIZE")
         return Response({"DEFAULT_PAGE_SIZE": default_page_size})
+    """ 
+
+class LikeView(APIView):
+    """
+    Like/Unlike Post Endpoint
+    - Token authentication required
+    - Supports like/unlike actions
+    - Prevents duplicate likes
+    - Prevents users from liking their own posts
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, post_id):
+        try:
+            post = Post.objects.get(pk=post_id)
+            
+            # Check if like already exists
+            like = Like.objects.filter(user=request.user, post=post).first()
+            
+            if like:
+                # Unlike if already liked
+                like.delete()
+                return Response({
+                    "message": "Post unliked successfully",
+                    "likes_count": post.likes.count()
+                }, status=status.HTTP_200_OK)
+            
+            # Create new like
+            like = Like(user=request.user, post=post)
+            like.clean()  # Run validation
+            like.save()
+            
+            return Response({
+                "message": "Post liked successfully",
+                "likes_count": post.likes.count()
+            }, status=status.HTTP_201_CREATED)
+            
+        except Post.DoesNotExist:
+            return Response(
+                {"error": "Post not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValidationError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+class PostLikesView(APIView):
+    """
+    Post Likes List Endpoint
+    - Get list of users who liked a post
+    - Token authentication required
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_id):
+        try:
+            post = Post.objects.get(pk=post_id)
+            likes = Like.objects.filter(post=post)
+            serializer = LikeSerializer(likes, many=True)
+            
+            return Response({
+                "likes_count": likes.count(),
+                "likes": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Post.DoesNotExist:
+            return Response(
+                {"error": "Post not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class ConfigView(APIView):
+    """Configuration management endpoint"""
+    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        config = ConfigManager()
+        return Response({
+            "DEFAULT_PAGE_SIZE": config.get_setting("DEFAULT_PAGE_SIZE")
+        })
