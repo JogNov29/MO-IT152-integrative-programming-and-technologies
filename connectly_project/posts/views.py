@@ -1,5 +1,6 @@
 # Django imports
 from django.contrib.auth import authenticate
+from django.shortcuts import render
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
@@ -12,6 +13,10 @@ from rest_framework.exceptions import PermissionDenied, NotFound
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
+
+import random
+import string
+from allauth.socialaccount.models import SocialAccount
 
 # Local imports
 from .models import Post, Comment, Like
@@ -566,3 +571,57 @@ class ConfigView(APIView):
         return Response({
             "DEFAULT_PAGE_SIZE": config.get_setting("DEFAULT_PAGE_SIZE")
         })
+
+class GoogleLoginSuccessView(APIView):
+    """
+    Handle successful Google OAuth login
+    Convert social authentication to JWT tokens
+    """
+    def get(self, request):
+        if request.user.is_authenticated:
+            # User is authenticated via Google OAuth
+            try:
+                # Try to get their social account
+                social_account = SocialAccount.objects.get(
+                    user=request.user,
+                    provider='google'
+                )
+                
+                # Generate JWT tokens
+                refresh = RefreshToken.for_user(request.user)
+                
+                return Response({
+                    'message': 'Google login successful',
+                    'tokens': {
+                        'refresh': str(refresh),
+                        'access': str(refresh.access_token),
+                    },
+                    'user': {
+                        'id': request.user.id,
+                        'username': request.user.username,
+                        'email': request.user.email,
+                        'google_id': social_account.uid
+                    }
+                })
+                
+            except SocialAccount.DoesNotExist:
+                return Response(
+                    {"error": "Social account not found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            return Response(
+                {"error": "User not authenticated"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+# Add this class to your views.py
+class OAuthTestView(APIView):
+    """
+    Simple view to test OAuth functionality
+    """
+    authentication_classes = []  # No authentication needed for this view
+    permission_classes = []  # No permissions needed for this view
+    
+    def get(self, request):
+        return render(request, 'oauth_test.html')

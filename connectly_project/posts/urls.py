@@ -14,7 +14,8 @@ from .views import (
     LikeView, 
     PostLikesView,
     UserLogoutView,
-    CustomTokenObtainPairView
+    CustomTokenObtainPairView,
+    OAuthTestView,
 )
 
 
@@ -25,6 +26,8 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('login/', UserLoginView.as_view(), name='user_login'),
     path('logout/', UserLogoutView.as_view(), name='user_logout'),
+    path('oauth-test/', OAuthTestView.as_view(), name='oauth-test'),
+    path('google-login-success/', views.GoogleLoginSuccessView.as_view(), name='google-login-success'),
     
     # User Authentication and Registration
     path('users/', UserCreate.as_view(), name='user-create'),  # User Registration (Create User)
