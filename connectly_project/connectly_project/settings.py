@@ -49,11 +49,13 @@ INSTALLED_APPS = [
     'posts',
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'sslserver',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
+
 ]
 
 MIDDLEWARE = [
@@ -230,3 +232,15 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 LOGIN_REDIRECT_URL = '/api/google-login-success/'
+
+# Create account when user logs in with Google
+SOCIALACCOUNT_AUTO_SIGNUP = True
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+SOCIALACCOUNT_ADAPTER = 'posts.adapters.CustomSocialAccountAdapter'
+
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [
+    BASE_DIR / 'posts' / 'static',
+]

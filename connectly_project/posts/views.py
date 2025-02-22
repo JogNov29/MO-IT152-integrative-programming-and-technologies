@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate
 from django.shortcuts import render
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+from django.shortcuts import render
 
 # Rest Framework imports
 from rest_framework import status
@@ -590,8 +591,12 @@ class GoogleLoginSuccessView(APIView):
                 # Generate JWT tokens
                 refresh = RefreshToken.for_user(request.user)
                 
+                # Determine if this was a new account
+                is_new_account = social_account.date_joined == social_account.last_login
+                
                 return Response({
                     'message': 'Google login successful',
+                    'is_new_account': is_new_account,
                     'tokens': {
                         'refresh': str(refresh),
                         'access': str(refresh.access_token),
@@ -614,8 +619,7 @@ class GoogleLoginSuccessView(APIView):
                 {"error": "User not authenticated"},
                 status=status.HTTP_401_UNAUTHORIZED
             )
-
-# Add this class to your views.py
+            
 class OAuthTestView(APIView):
     """
     Simple view to test OAuth functionality
@@ -625,3 +629,12 @@ class OAuthTestView(APIView):
     
     def get(self, request):
         return render(request, 'oauth_test.html')
+
+def login_page(request):
+    return render(request, 'login.html')
+
+def signup_page(request):
+    return render(request, 'signup.html')
+
+def home_page(request):
+    return render(request, 'home.html')

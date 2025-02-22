@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from posts.views import UserLoginView as UserLogin
+from django.views.generic import TemplateView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -25,4 +26,9 @@ urlpatterns = [
     path('api/', include('posts.urls')),  # Your existing API endpoints
     path('accounts/', include('allauth.urls')),  # Add this for OAuth
     path('login/', UserLogin.as_view(), name='user-login'),
+    
+    # HTML pages
+    path('', TemplateView.as_view(template_name='home.html'), name='home'),
+    path('login/', TemplateView.as_view(template_name='login.html'), name='login'),
+    path('signup/', TemplateView.as_view(template_name='signup.html'), name='signup'),
 ]

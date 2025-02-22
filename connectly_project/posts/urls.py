@@ -16,6 +16,7 @@ from .views import (
     UserLogoutView,
     CustomTokenObtainPairView,
     OAuthTestView,
+    login_page, signup_page, home_page,
 )
 
 
@@ -52,4 +53,8 @@ urlpatterns = [
     # Add the LikeView and PostLikesView
     path('posts/<int:post_id>/like/', LikeView.as_view(), name='post-like'),
     path('posts/<int:post_id>/likes/', PostLikesView.as_view(), name='post-likes-list'),
+    
+    path('', home_page, name='home'),
+    path('login/', login_page, name='login'),
+    path('signup/', signup_page, name='signup'),
 ]
