@@ -15,8 +15,13 @@ from .views import (
     PostLikesView,
     UserLogoutView,
     CustomTokenObtainPairView,
-    OAuthTestView,
-    login_page, signup_page, home_page,
+    GoogleLoginView,
+    PostCommentsView,
+    ProfileView,
+    ProfilePictureUploadView,
+    FollowUserView,
+    NewsFeedView,
+    TrendingPostsView,
 )
 
 
@@ -27,7 +32,6 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('login/', UserLoginView.as_view(), name='user_login'),
     path('logout/', UserLogoutView.as_view(), name='user_logout'),
-    path('oauth-test/', OAuthTestView.as_view(), name='oauth-test'),
     path('google-login-success/', views.GoogleLoginSuccessView.as_view(), name='google-login-success'),
     
     # User Authentication and Registration
@@ -35,6 +39,7 @@ urlpatterns = [
     path('users/list/', UserListView.as_view(), name='user-list'),  # List all users (Admin only)
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),  # Retrieve user details
     path('users/delete/<int:pk>/', UserDetailView.as_view(), name='delete-user'),  # Delete user (Admin only)
+    path('auth/google/login/', GoogleLoginView.as_view(), name='google-login'),
 
     # Post Management
     path('posts/', PostListCreate.as_view(), name='post-list-create'),  # List and create posts
@@ -43,6 +48,7 @@ urlpatterns = [
     # Comment Management
     path('comments/', CommentListCreate.as_view(), name='comment-list-create'),  # List and create comments
     path('comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),  # Retrieve, update, or delete comment
+    path('posts/<int:post_id>/comments/', PostCommentsView.as_view(), name='post-comments'),
 
     # Protected endpoint for testing authentication
     path('protected/', ProtectedView.as_view(), name='protected-view'),
@@ -54,7 +60,13 @@ urlpatterns = [
     path('posts/<int:post_id>/like/', LikeView.as_view(), name='post-like'),
     path('posts/<int:post_id>/likes/', PostLikesView.as_view(), name='post-likes-list'),
     
-    path('', home_page, name='home'),
-    path('login/', login_page, name='login'),
-    path('signup/', signup_page, name='signup'),
+    # Add the ProfileView, ProfilePictureUploadView, and FollowUserView
+    path('profile/<str:username>/', ProfileView.as_view(), name='profile-detail'),
+    path('profile/update/', ProfileView.as_view(), name='profile-update'),
+    path('profile/picture/', ProfilePictureUploadView.as_view(), name='profile-picture'),
+    path('profile/<str:username>/follow/', FollowUserView.as_view(), name='follow-user'),
+    
+    # Feed endpoints
+    path('feed/', NewsFeedView.as_view(), name='news-feed'),
+    path('feed/trending/', TrendingPostsView.as_view(), name='trending-posts'),
 ]
