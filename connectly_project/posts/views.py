@@ -971,7 +971,10 @@ class NewsFeedView(APIView):
         )
         
         response_data = {
-            'results': serializer.data,
+            'results': [
+                {**item, 'engagement_score': item.get('db_engagement_score', 0)} 
+                for item in serializer.data
+            ],
             'page': page,
             'total_pages': paginator['total_pages'],
             'has_next': paginator['has_next'],
@@ -1018,8 +1021,8 @@ class NewsFeedView(APIView):
             
         # Annotate with engagement metrics for sorting
         return base_query.annotate(
-            engagement_score=Count('likes') + Count('comments') * 2
-        ).order_by('-created_at', '-engagement_score')
+            db_engagement_score=Count('likes') + Count('comments') * 2
+        ).order_by('-created_at', '-db_engagement_score')
     
     def _paginate_queryset(self, queryset, page, page_size):
         """Apply pagination to queryset"""
