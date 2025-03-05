@@ -114,7 +114,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class PostSerializer(serializers.ModelSerializer):
-    profile = ProfileSerializer(read_only=True)
+    # profile = ProfileSerializer(read_only=True)
     author_profile = ProfileSerializer(source='author.profile', read_only=True)
     """
     Complete Post Serializer
