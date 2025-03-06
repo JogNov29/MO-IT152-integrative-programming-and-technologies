@@ -827,31 +827,33 @@ class GoogleLoginView(APIView):
             )
 
 class ProfileView(APIView):
-    """
-    Profile management endpoint
-    - Get profile details
-    - Update profile
-    - Upload profile picture
-    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
     
-    def get(self, request, username):
+    def get(self, request, username=None):
         try:
-            profile = Profile.objects.get(user__username=username)
+            if username:
+                profile = Profile.objects.get(user__username=username)
+            else:
+                profile = request.user.profile
+                
             serializer = ProfileSerializer(profile, context={'request': request})
             return Response(serializer.data)
         except Profile.DoesNotExist:
             raise NotFound('Profile not found')
 
-    def put(self, request):
-        profile = request.user.profile
-        serializer = ProfileSerializer(profile, data=request.data, partial=True)
-        
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def put(self, request, username=None):
+        try:
+            # Always use the authenticated user's profile for updates
+            profile = request.user.profile
+            
+            serializer = ProfileSerializer(profile, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Profile.DoesNotExist:
+            raise NotFound('Profile not found')
 
 class ProfilePictureUploadView(APIView):
     """
@@ -902,23 +904,47 @@ class FollowUserView(APIView):
                     {'error': 'You cannot follow yourself'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            if request.user in profile_to_follow.followers.all():
-                profile_to_follow.followers.remove(request.user)
-                action = 'unfollowed'
+            
+            # Check if this is an unfollow request by examining the URL path
+            is_unfollow_request = 'unfollow' in request.path
+            
+            if is_unfollow_request:
+                # Handle unfollow request
+                if request.user in profile_to_follow.followers.all():
+                    profile_to_follow.followers.remove(request.user)
+                    
+                    # Update counts
+                    profile_to_follow.update_counts()
+                    request.user.profile.update_counts()
+                    
+                    return Response({
+                        'message': f'Successfully unfollowed {username}',
+                        'followers_count': profile_to_follow.followers_count
+                    })
+                else:
+                    return Response(
+                        {'error': 'You are not following this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             else:
-                profile_to_follow.followers.add(request.user)
-                action = 'followed'
+                # Handle follow request
+                if request.user in profile_to_follow.followers.all():
+                    return Response(
+                        {'error': 'You are already following this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    profile_to_follow.followers.add(request.user)
+                    
+                    # Update counts
+                    profile_to_follow.update_counts()
+                    request.user.profile.update_counts()
+                    
+                    return Response({
+                        'message': f'Successfully followed {username}',
+                        'followers_count': profile_to_follow.followers_count
+                    })
                 
-            # Update counts
-            profile_to_follow.update_counts()
-            request.user.profile.update_counts()
-            
-            return Response({
-                'message': f'Successfully {action} {username}',
-                'followers_count': profile_to_follow.followers_count
-            })
-            
         except User.DoesNotExist:
             raise NotFound('User not found')
 
