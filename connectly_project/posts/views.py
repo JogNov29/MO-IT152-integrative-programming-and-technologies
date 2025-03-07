@@ -902,25 +902,50 @@ class FollowUserView(APIView):
                     {'error': 'You cannot follow yourself'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            if request.user in profile_to_follow.followers.all():
-                profile_to_follow.followers.remove(request.user)
-                action = 'unfollowed'
+            
+            # Check if this is an unfollow request by examining the URL path
+            is_unfollow_request = 'unfollow' in request.path
+            
+            if is_unfollow_request:
+                # Handle unfollow request
+                if request.user in profile_to_follow.followers.all():
+                    profile_to_follow.followers.remove(request.user)
+                    
+                    # Update counts
+                    profile_to_follow.update_counts()
+                    request.user.profile.update_counts()
+                    
+                    return Response({
+                        'message': f'Successfully unfollowed {username}',
+                        'followers_count': profile_to_follow.followers_count
+                    })
+                else:
+                    return Response(
+                        {'error': 'You are not following this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             else:
-                profile_to_follow.followers.add(request.user)
-                action = 'followed'
+                # Handle follow request
+                if request.user in profile_to_follow.followers.all():
+                    return Response(
+                        {'error': 'You are already following this user'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    profile_to_follow.followers.add(request.user)
+                    
+                    # Update counts
+                    profile_to_follow.update_counts()
+                    request.user.profile.update_counts()
+                    
+                    return Response({
+                        'message': f'Successfully followed {username}',
+                        'followers_count': profile_to_follow.followers_count
+                    })
                 
-            # Update counts
-            profile_to_follow.update_counts()
-            request.user.profile.update_counts()
-            
-            return Response({
-                'message': f'Successfully {action} {username}',
-                'followers_count': profile_to_follow.followers_count
-            })
-            
         except User.DoesNotExist:
             raise NotFound('User not found')
+
 
 class NewsFeedView(APIView):
     """
