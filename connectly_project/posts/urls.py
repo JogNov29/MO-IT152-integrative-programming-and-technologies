@@ -61,12 +61,11 @@ urlpatterns = [
     path('posts/<int:post_id>/likes/', PostLikesView.as_view(), name='post-likes-list'),
     
     # Add the ProfileView, ProfilePictureUploadView, and FollowUserView
-    path('profile/<str:username>/', ProfileView.as_view(), name='profile-detail'),
     path('profile/update/', ProfileView.as_view(), name='profile-update'),  
-    path('profile/<str:username>/', ProfileView.as_view(), name='profile-detail'),
     path('profile/picture/', ProfilePictureUploadView.as_view(), name='profile-picture'),
     path('profile/<str:username>/follow/', FollowUserView.as_view(), name='follow-user'),
     path('profile/<str:username>/unfollow/', FollowUserView.as_view(), name='unfollow-user'),
+    path('profile/<str:username>/', ProfileView.as_view(), name='profile-detail'),
     
     # Feed endpoints
     path('feed/', NewsFeedView.as_view(), name='news-feed'),
